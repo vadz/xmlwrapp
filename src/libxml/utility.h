@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <string>
 #include <cstdarg>
+#include <climits>
 
 // libxml2 includes
 #include <libxml/tree.h>
@@ -94,6 +95,10 @@ inline const xmlChar* xml_string(const std::string& s)
 
 // Formats given message with arguments into a std::string
 void printf2string(std::string& s, const char *message, va_list ap);
+
+// Returns the libxml2 parser options corresponding to the flags set using
+// xml::init static functions, to be passed to xmlCtxtUseOptions().
+int get_parser_options();
 
 // Sun CC uses ancient C++ standard library that doesn't have standard
 // std::distance(). Work around it here
