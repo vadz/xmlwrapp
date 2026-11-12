@@ -136,10 +136,6 @@ void cb_error(void *parser, const char *message, ...)
     static_cast<epimpl*>(parser)->event_error(complete_message);
 }
 
-void cb_ignore(void*, const xmlChar*, int)
-{
-}
-
 } // extern "C"
 
 } // anonymous namespace
@@ -160,15 +156,15 @@ epimpl::epimpl(event_parser& parent)
     sax_handler_.error                  = cb_error;
     sax_handler_.fatalError             = cb_error;
 
-    if (xmlKeepBlanksDefaultValue == 0)
-        sax_handler_.ignorableWhitespace = cb_ignore;
-    else
-        sax_handler_.ignorableWhitespace = cb_text;
+    // XML_PARSE_NOBLANKS, if used, replaces this handler with a no-op one.
+    sax_handler_.ignorableWhitespace    = cb_text;
 
     if ( (parser_context_ = xmlCreatePushParserCtxt(&sax_handler_, this, nullptr, 0, nullptr)) == nullptr)
     {
         throw std::bad_alloc();
     }
+
+    xmlCtxtUseOptions(parser_context_, get_parser_options());
 }
 
 
