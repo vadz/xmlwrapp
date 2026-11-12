@@ -100,10 +100,6 @@ extern "C" void cb_tree_structured_error(void *out, xmlErrorPtr error)
 }
 
 
-extern "C" void cb_tree_ignore(void*, const xmlChar*, int)
-{
-}
-
 } // anonymous namespace
 
 
@@ -115,10 +111,60 @@ impl::tree_impl::tree_impl()
     // Setting the structured error handler overrides all the others, so there
     // is no need to reset them.
     sax_.serror = cb_tree_structured_error;
-
-    if (xmlKeepBlanksDefaultValue == 0)
-        sax_.ignorableWhitespace =  cb_tree_ignore;
 }
+
+
+namespace
+{
+
+// Parse the document using the given context, which is freed by this function.
+//
+// Returns the parsed document or null on error.
+xmlDocPtr parse_with_context(tree_impl& impl,
+                             xmlParserCtxtPtr ctxt,
+                             error_handler *on_error)
+{
+    if (ctxt->sax)
+        xmlFree(ctxt->sax);
+
+    ctxt->sax = &(impl.sax_);
+
+    ctxt->_private = &impl;
+
+    // This must be done after setting the SAX handler, as some options
+    // modify it.
+    xmlCtxtUseOptions(ctxt, get_parser_options());
+
+    const int retval = xmlParseDocument(ctxt);
+
+    if (!ctxt->wellFormed || retval != 0 || impl.messages_.has_errors())
+    {
+        xmlFreeDoc(ctxt->myDoc);
+        ctxt->myDoc = nullptr;
+        ctxt->sax = nullptr;
+        xmlFreeParserCtxt(ctxt);
+
+        if ( !impl.messages_.has_errors() )
+        {
+            // Provide at least some error message.
+            impl.messages_.on_error(DEFAULT_ERROR);
+        }
+
+        if (on_error)
+            impl.messages_.replay(*on_error);
+
+        return nullptr; // handle non-exception case
+    }
+
+    xmlDocPtr const doc = ctxt->myDoc;
+    ctxt->sax = nullptr;
+
+    xmlFreeParserCtxt(ctxt);
+
+    return doc;
+}
+
+} // anonymous namespace
 
 
 // ------------------------------------------------------------------------
@@ -145,28 +191,20 @@ void tree_parser::init(const char *name, error_handler *on_error)
     // these messages too.
     impl::global_errors_installer install_as_global(pimpl_->messages_);
 
-    xmlDocPtr tmpdoc = xmlSAXParseFileWithData(&(pimpl_->sax_), name, 0, pimpl_.get());
-
-    if (tmpdoc && !pimpl_->messages_.has_errors())
-    {
-        // all is fine
-        pimpl_->doc_.set_doc_data(tmpdoc);
-    }
-    else
+    xmlParserCtxtPtr ctxt = xmlCreateFileParserCtxt(name);
+    if (!ctxt)
     {
         if ( !pimpl_->messages_.has_errors() )
-        {
-            // Provide at least some error message.
             pimpl_->messages_.on_error(DEFAULT_ERROR);
-        }
-
-        // a problem appeared
-        if (tmpdoc)
-            xmlFreeDoc(tmpdoc);
 
         if (on_error)
             pimpl_->messages_.replay(*on_error);
+
+        return;
     }
+
+    if (xmlDocPtr doc = parse_with_context(*pimpl_, ctxt, on_error))
+        pimpl_->doc_.set_doc_data(doc);
 }
 
 
@@ -188,32 +226,8 @@ void tree_parser::init(const char *data, size_type size, error_handler *on_error
     if ( (ctxt = xmlCreateMemoryParserCtxt(data, xml::impl::checked_int_cast(size))) == nullptr)
         throw std::bad_alloc();
 
-    if (ctxt->sax)
-        xmlFree(ctxt->sax);
-
-    ctxt->sax = &(pimpl_->sax_);
-
-    ctxt->_private = pimpl_.get();
-
-    const int retval = xmlParseDocument(ctxt);
-
-    if (!ctxt->wellFormed || retval != 0 || pimpl_->messages_.has_errors())
-    {
-        xmlFreeDoc(ctxt->myDoc);
-        ctxt->myDoc = nullptr;
-        ctxt->sax = nullptr;
-        xmlFreeParserCtxt(ctxt);
-
-        if (on_error)
-            pimpl_->messages_.replay(*on_error);
-
-        return; // handle non-exception case
-    }
-
-    pimpl_->doc_.set_doc_data(ctxt->myDoc);
-    ctxt->sax = nullptr;
-
-    xmlFreeParserCtxt(ctxt);
+    if (xmlDocPtr doc = parse_with_context(*pimpl_, ctxt, on_error))
+        pimpl_->doc_.set_doc_data(doc);
 }
 
 

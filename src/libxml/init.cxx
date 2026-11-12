@@ -33,6 +33,7 @@
 
 // xmlwrapp includes
 #include "xmlwrapp/init.h"
+#include "utility.h"
 
 // libxml includes
 #include <libxml/globals.h>
@@ -42,10 +43,26 @@
 namespace
 {
 
+// The parser flags are passed to each parser context as options instead of
+// being stored in libxml2 global variables, which are deprecated since libxml2
+// 2.12. They are per-thread, as these global variables are when libxml2 is
+// built with threads support.
+thread_local bool remove_whitespace_flag = false;
+thread_local bool substitute_entities_flag = true;
+thread_local bool load_external_subsets_flag = true;
+thread_local bool validate_xml_flag = false;
+
 bool change_flag_and_return_old_value(int* flag, bool new_value)
 {
     const bool old_value = *flag != 0;
     *flag = new_value ? 1 : 0;
+    return old_value;
+}
+
+bool change_flag_and_return_old_value(bool& flag, bool new_value)
+{
+    const bool old_value = flag;
+    flag = new_value;
     return old_value;
 }
 
@@ -77,10 +94,6 @@ void init::init_library()
 
     // set some libxml global variables
     indent_output(true);
-    remove_whitespace(false);
-    substitute_entities(true);
-    load_external_subsets(true);
-    validate_xml(false);
 }
 
 
@@ -98,25 +111,41 @@ bool init::indent_output(bool flag)
 
 bool init::remove_whitespace(bool flag)
 {
-    return !change_flag_and_return_old_value(&xmlKeepBlanksDefaultValue, !flag);
+    return change_flag_and_return_old_value(remove_whitespace_flag, flag);
 }
 
 
 bool init::substitute_entities(bool flag)
 {
-    return change_flag_and_return_old_value(&xmlSubstituteEntitiesDefaultValue, flag);
+    return change_flag_and_return_old_value(substitute_entities_flag, flag);
 }
 
 
 bool init::load_external_subsets(bool flag)
 {
-    return change_flag_and_return_old_value(&xmlLoadExtDtdDefaultValue, flag);
+    return change_flag_and_return_old_value(load_external_subsets_flag, flag);
 }
 
 
 bool init::validate_xml(bool flag)
 {
-  return change_flag_and_return_old_value(&xmlDoValidityCheckingDefaultValue, flag);
+  return change_flag_and_return_old_value(validate_xml_flag, flag);
+}
+
+
+int impl::get_parser_options()
+{
+    int options = 0;
+    if (remove_whitespace_flag)
+        options |= XML_PARSE_NOBLANKS;
+    if (substitute_entities_flag)
+        options |= XML_PARSE_NOENT;
+    if (load_external_subsets_flag)
+        options |= XML_PARSE_DTDLOAD;
+    if (validate_xml_flag)
+        options |= XML_PARSE_DTDVALID;
+
+    return options;
 }
 
 } // namespace xml
